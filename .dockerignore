@@ -1,0 +1,15 @@
+build/
+vcpkg/
+venv/
+.git/
+.vs/
+.vscode/
+.idea/
+.agent/
+__pycache__/
+*.pyc
+*.pdb
+*.ilk
+*.obj
+*.onnx.data
+docs/

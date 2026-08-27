@@ -1,0 +1,31 @@
+# Build artifacts
+build/
+bin/
+obj/
+out/
+docs/
+
+
+# Python Virtual Env
+venv/
+__pycache__/
+*.pyc
+
+# Dependencies (vcpkg is bootstrapped, not committed)
+vcpkg/
+vcpkg_installed/
+
+# Models (large binary files � download or export separately)
+*.onnx
+*.onnx.data
+
+# IDEs / OS
+.vscode/
+.idea/
+.vs/
+*.suo
+*.user
+.DS_Store
+Thumbs.db
+
+# Docker build context exclusions are handled by .dockerignore
