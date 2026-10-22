@@ -1,10 +1,12 @@
-﻿<div align="center">
+<div align="center">
 
 # ⚡ Helios
 
 **High-performance C++ model inference server built on ONNX Runtime**
 
 *Dynamic batching · CUDA GPU acceleration · REST API · Docker-ready*
+
+*Eliminating Python runtime & GIL overhead for ~1.8x lower CPU latency · Sub-4ms latency & 515+ img/s with CUDA GPU acceleration*
 
 ---
 
@@ -22,17 +24,19 @@ Helios is a production-style C++ inference server that takes a pretrained model 
 
 ### Why not just use PyTorch + FastAPI?
 
-Because Python adds overhead. Helios eliminates the Python runtime, GIL, and serialization costs entirely:
+Standard Python inference endpoints incur significant overhead from the Global Interpreter Lock (GIL), serialization, and Python runtime layers. Helios delivers two distinct layers of performance:
 
-| Mode | Mean Latency | p95 Latency | Throughput |
-|------|-------------|-------------|------------|
-| **PyTorch CPU** (Python, batch=1) | 42.48 ms | 48.06 ms | N/A |
-| **Helios C++ Core** (CPU, batch=1) | 23.82 ms | 25.72 ms | N/A |
-| **Helios C++ Core** (CPU, batch=4) | N/A | N/A | 41.6 img/s |
-| **Helios C++ Core** (GPU/CUDA, batch=1) | **3.91 ms** | **4.45 ms** | N/A |
-| **Helios C++ Core** (GPU/CUDA, batch=4) | N/A | N/A | **515 img/s** |
+1. **Like-for-like CPU speedup (~1.8x faster):** On identical CPU hardware (4 threads), pure C++ execution with ONNX Runtime graph optimizations reduces mean latency from **42.48 ms** (PyTorch CPU) to **23.82 ms** (Helios CPU).
+2. **GPU hardware acceleration (~12.4x throughput):** Offloading execution to CUDA drops latency to **3.91 ms** and achieves **515.5 img/s** throughput under dynamic batching.
 
-> *CPU benchmarks on Intel/AMD x86_64. GPU benchmarks inside NVIDIA CUDA 11.8 Docker container.*
+| Mode | Hardware | Mean Latency (batch=1) | p95 Latency | Throughput (batch=4) | Comparison |
+|------|----------|------------------------|-------------|----------------------|------------|
+| **PyTorch CPU** (Python) | CPU (4 threads) | 42.48 ms | 48.06 ms | N/A | Baseline |
+| **Helios C++ Core** | CPU (4 threads) | 23.82 ms | 25.72 ms | 41.63 img/s | **~1.8x faster** (apples-to-apples CPU) |
+| **Helios C++ Core** | GPU (CUDA 11.8) | **3.91 ms** | **4.45 ms** | **515.48 img/s** | **~6.1x faster than C++ CPU** |
+
+> *Note on comparisons: CPU benchmarks were run on Intel/AMD x86_64 matching thread counts (4 threads). GPU benchmarks were run inside the NVIDIA CUDA 11.8 Docker container. While Helios GPU is ~10.8x faster than the PyTorch CPU baseline, that is a cross-hardware comparison (GPU vs. CPU); the fair architectural software comparison on identical hardware is the CPU-to-CPU ~1.8x speedup.*
+
 ## Architecture
 
 ```
@@ -80,23 +84,26 @@ Because Python adds overhead. Helios eliminates the Python runtime, GIL, and ser
 Helios/
 ├── include/
 │   ├── inference_engine.hpp    # ONNX Runtime session wrapper
-│   ├── async_batcher.hpp       # Thread-safe dynamic batcher
-│   └── metrics.hpp             # Server metrics
+│   └── async_batcher.hpp       # Thread-safe dynamic batcher & server metrics
 ├── src/
 │   ├── inference_engine.cpp    # Core inference + CUDA EP logic
 │   ├── async_batcher.cpp       # Batch queue + worker thread
 │   └── server.cpp              # Crow REST API + routing
 ├── benchmarks/
 │   ├── cpp_benchmark.cpp       # Raw C++ latency/throughput benchmark
-│   └── benchmark.py            # PyTorch baseline + server comparison
+│   ├── benchmark.py            # PyTorch baseline + server comparison
+│   └── results/
+│       └── benchmark_results.md# Documented benchmark run logs
 ├── tests/
 │   ├── test_inference_engine.cpp
-│   └── test_async_batcher.cpp
+│   ├── test_async_batcher.cpp
+│   └── smoke_test.cpp
 ├── models/
 │   └── export_model.py         # PyTorch → ONNX export script
 ├── scripts/
 │   ├── setup_env.ps1           # Windows dependency setup
-│   └── setup_env.sh            # Linux dependency setup
+│   ├── setup_env.sh            # Linux dependency setup
+│   └── run_server.sh           # Server launch helper script
 ├── CMakeLists.txt
 ├── Dockerfile
 ├── docker-compose.yml
@@ -111,7 +118,7 @@ Helios/
 
 ```bash
 # 1. Clone and set up dependencies
-git clone https://github.com/Rudyy75/Helios.git && cd Helios
+git clone https://github.com/yourusername/Helios.git && cd Helios
 ./scripts/setup_env.sh        # or .\scripts\setup_env.ps1 on Windows
 
 # 2. Export the model (downloads pretrained ResNet-50 → ONNX)
@@ -159,7 +166,19 @@ curl -X POST http://localhost:8080/infer \
 ```bash
 curl -X POST http://localhost:8080/infer/batch \
   -H "Content-Type: application/json" \
-  -d '{"requests": [{"data": [...], "shape": [3,224,224]}, ...]}'
+  -d '{"requests": [{"data": [0.5, 0.5, ...], "shape": [3, 224, 224]}]}'
+```
+
+**Response:**
+```json
+{
+  "results": [
+    {
+      "output": [0.12, 0.03, ...],
+      "shape": [1000]
+    }
+  ]
+}
 ```
 
 ### `GET /health` — Liveness Check
@@ -182,7 +201,7 @@ curl -X POST http://localhost:8080/infer/batch \
 
 > Full results: [`benchmarks/results/benchmark_results.md`](benchmarks/results/benchmark_results.md)
 > 
-> *CPU benchmarks run on Intel/AMD x86_64. GPU benchmarks run inside the NVIDIA CUDA 11.8 Docker container.*
+> *CPU benchmarks run on Intel/AMD x86_64 (matching 4-thread configuration). GPU benchmarks run inside the NVIDIA CUDA 11.8 Docker container.*
 
 ### Latency (Batch Size = 1)
 
@@ -199,10 +218,21 @@ curl -X POST http://localhost:8080/infer/batch \
 | **Helios C++ (CPU)** | 41.63 img/s |
 | **Helios C++ (GPU/CUDA)** | **515.48 img/s** |
 
-**CPU Speedup:** ~1.8x faster than PyTorch Python baseline  
-**GPU Speedup:** ~10x faster than PyTorch Python baseline, ~515 images/sec throughput
+### Performance Analysis & Speedup Breakdown
 
-### Benchmarking
+- **CPU Runtime Speedup (Apples-to-Apples):** **~1.8x faster** (23.82 ms vs. 42.48 ms mean latency) than the PyTorch Python baseline on identical CPU hardware with matching thread counts (4 threads). This directly isolates the architectural performance gain from eliminating Python's GIL, runtime interpreter overhead, and serialization copies.
+- **GPU Acceleration (CUDA vs. CPU C++):** **~6.1x faster** raw latency (3.91 ms vs. 23.82 ms) and **~12.4x higher throughput** (515.48 img/s vs. 41.63 img/s at batch=4).
+- **Cross-Hardware Context (GPU vs. PyTorch CPU):** Helios on CUDA executes inference **~10.8x faster** than PyTorch on CPU (3.91 ms vs. 42.48 ms). *Note: While this demonstrates full-stack deployment acceleration, comparing GPU C++ directly against CPU PyTorch is a cross-hardware comparison. The fair software architectural comparison on identical hardware is the CPU-to-CPU ~1.8x speedup.*
+
+### Running Benchmarks
+
+```bash
+# 1. Pure C++ engine benchmark (isolates raw inference latency/throughput without HTTP/JSON)
+./build/Release/cpp_benchmark
+
+# 2. PyTorch CPU baseline & HTTP server benchmark
+python benchmarks/benchmark.py
+```
 ## Testing
 
 ```bash
