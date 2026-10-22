@@ -111,7 +111,7 @@ Helios/
 
 ```bash
 # 1. Clone and set up dependencies
-git clone https://github.com/yourusername/Helios.git && cd Helios
+git clone https://github.com/Rudyy75/Helios.git && cd Helios
 ./scripts/setup_env.sh        # or .\scripts\setup_env.ps1 on Windows
 
 # 2. Export the model (downloads pretrained ResNet-50 → ONNX)
